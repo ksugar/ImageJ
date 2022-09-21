@@ -82,7 +82,7 @@ public class Opener {
 	 * @see ij.IJ#open(String)
 	 * @see ij.IJ#openImage(String)
 	*/
-	public void open(String path) {
+	public void open(String path, boolean showError) {
 		boolean isURL = path.contains("://") || path.contains("file:/");
 		if (isURL && isText(path)) {
 			openTextURL(path);
@@ -101,7 +101,7 @@ public class Opener {
 			this.fileType = JAVA_OR_TEXT;
 		else {
 			useHandleExtraFileTypes = true;
-			imp = openImage(path);
+			imp = openImage(path, showError);
 		}
 		if (imp==null && isURL)
 			return;
@@ -151,26 +151,32 @@ public class Opener {
 					IJ.runPlugIn("ij.plugin.Raw", path);
 					break;
 				case UNKNOWN:
-					File f = new File(path);
-					String msg = (f.exists()) ?
-						"Format not supported or reader plugin not found:"
-						: "File not found:";					
-					if (path!=null) {
-						if (path.length()>64)
-							path = (new File(path)).getName();
-						if (path.length()<=64)
-								msg += " \n"+path;
+					if (showError) {
+						File f = new File(path);
+						String msg = (f.exists()) ?
+							"Format not supported or reader plugin not found:"
+							: "File not found:";					
+						if (path!=null) {
+							if (path.length()>64)
+								path = (new File(path)).getName();
+							if (path.length()<=64)
+									msg += " \n"+path;
+						}
+						if (openUsingPlugins && msg.length()>20)
+							msg += "\n \nNOTE: The \"OpenUsingPlugins\" option is set.";
+						IJ.wait(IJ.isMacro()?500:100); // work around for OS X thread deadlock problem
+						IJ.error("Opener", msg);
 					}
-					if (openUsingPlugins && msg.length()>20)
-						msg += "\n \nNOTE: The \"OpenUsingPlugins\" option is set.";
-					IJ.wait(IJ.isMacro()?500:100); // work around for OS X thread deadlock problem
-					IJ.error("Opener", msg);
 					error = true;
 					break;
 			}
 		}
 	}
 		
+	public void open(String path) {
+		open(path, true);
+	}
+	
 	/** Displays a JFileChooser and then opens the tiff, dicom, 
 		fits, pgm, jpeg, bmp, gif, lut, roi, or text files selected by 
 		the user. Displays error messages if one or more of the selected 
@@ -230,7 +236,7 @@ public class Opener {
 	 * @see ij.IJ#openImage
 	 * @see #openUsingBioFormats
 	*/
-	public ImagePlus openImage(String path) {
+	public ImagePlus openImage(String path, boolean showError) {
 		if (path==null || path.equals(""))
 			path = getPath();
 		if (path==null) return null;
@@ -238,8 +244,12 @@ public class Opener {
 		if (path.contains("://") || path.contains("file:/")) // path is a URL
 			img = openURL(path);
 		else
-			img = openImage(getDir(path), getName(path));
+			img = openImage(getDir(path), getName(path), showError);
 		return img;
+	}
+	
+	public ImagePlus openImage(String path) {
+		return openImage(path, true);
 	}
 	
 	/**
@@ -305,12 +315,16 @@ public class Opener {
 	}
 	
 	/** Opens the specified file and adds it to the File/Open Recent menu.
-		Returns true if the file was opened successfully.  */
-	public boolean openAndAddToRecent(String path) {
-		open(path);
+		Returns false if the file was opened successfully.  */
+	public boolean openAndAddToRecent(String path, boolean showError) {
+		open(path, showError);
 		if (!error)
 			Menus.addOpenRecentItem(path);
 		return error;
+	}
+	
+	public boolean openAndAddToRecent(String path) {
+		return openAndAddToRecent(path, true);
 	}
 
 	/**
@@ -320,7 +334,7 @@ public class Opener {
 	 * the file type is unrecognised.
 	 * @see ij.IJ#openImage(String)
 	*/
-	public ImagePlus openImage(String directory, String name) {
+	public ImagePlus openImage(String directory, String name, boolean showError) {
 		ImagePlus imp;
 		FileOpener.setSilentMode(silentMode);
 		if (directory.length()>0 && !(directory.endsWith("/")||directory.endsWith("\\")))
@@ -383,10 +397,14 @@ public class Opener {
 				if (imp!=null)
 					return imp;
 				else
-					return openUsingHandleExtraFileTypes(path);
+					return openUsingHandleExtraFileTypes(path, showError);
 			default:
 				return null;
 		}
+	}
+	
+	public ImagePlus openImage(String directory, String name) {
+		return openImage(directory, name, true);
 	}
 	
 	public ImagePlus openTempImage(String directory, String name) {
@@ -397,8 +415,8 @@ public class Opener {
 	}
 	
 	// Call HandleExtraFileTypes plugin to see if it can handle unknown formats
-	// or files in TIFF format that the built in reader is unable to open.
-	private ImagePlus openUsingHandleExtraFileTypes(String path) {
+	// or files in TIFF format that the built in reader is unable to open.	
+	private ImagePlus openUsingHandleExtraFileTypes(String path, boolean showError) {
 		File f = new File(path);
 		if (!f.exists())
 			return null;
@@ -408,9 +426,13 @@ public class Opener {
 		if (imp!=null && imp.getNChannels()>1)
 			imp = new CompositeImage(imp, IJ.COLOR);
 		this.fileType = wrap[0];
-		if (imp==null && (this.fileType==UNKNOWN||this.fileType==TIFF) && WindowManager.getImageCount()==nImages)
+		if (showError && imp==null && (this.fileType==UNKNOWN||this.fileType==TIFF) && WindowManager.getImageCount()==nImages)
 			IJ.error("Opener", "Unsupported format or file not found:\n"+path);
 		return imp;
+	}
+	
+	private ImagePlus openUsingHandleExtraFileTypes(String path) {
+		return openUsingHandleExtraFileTypes(path, true);
 	}
 	
 	String getPath() {
